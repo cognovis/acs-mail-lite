@@ -280,6 +280,10 @@ namespace eval acs_mail_lite {
     ad_proc -private sweeper {} {
         Send messages in the acs_mail_lite_queue table.
     } {
+
+	# patch:send mails created by deprecated package acs-mail
+        acs_mail_process_queue
+
         # Make sure that only one thread is processing the queue at a time.
         if {[nsv_incr acs_mail_lite send_mails_p] > 1} {
             nsv_incr acs_mail_lite send_mails_p -1
@@ -407,7 +411,7 @@ namespace eval acs_mail_lite {
         set message_date [acs_mail_lite::utils::build_date]
 
         # Build the message body
-        set tokens [acs_mail_lite::utils::build_body -mime_type $mime_type $body]
+        set tokens [acs_mail_lite::utils::build_body -mime_type $mime_type -- $body]
 
         # Add attachments if any
         if {[exists_and_not_null file_ids]} {
@@ -441,8 +445,8 @@ namespace eval acs_mail_lite {
 
         # Set the subject
         if { $subject ne "" } {
-            set subject [acs_mail_lite::utils::build_subject $subject]
-            mime::setheader $tokens Subject $subject
+            set encoded_subject [acs_mail_lite::utils::build_subject $subject]
+            mime::setheader $tokens Subject $encoded_subject
         }
 
         # Add extra headers
@@ -540,11 +544,51 @@ namespace eval acs_mail_lite {
             ns_log Notice "acs-mail-lite::send: $notice\n\n**********\nEnveloppe sender: $originator\n\n$packaged\n**********"
 
         } else {
-
-            acs_mail_lite::smtp -multi_token $tokens \
-                -headers $headers_list \
-                -originator $originator
-            
+		global tcl_platform
+		set platform [lindex $tcl_platform(platform) 0]
+		# Added by M. Martignano on 15/06/2012 to interface with
+		# a SMTP server on Windows
+		if { $platform == "windows" } {
+			# Get the SMTP Parameters
+			set smtp [parameter::get -parameter "SMTPHost" \
+				      -package_id $mail_package_id \
+				      -default [ns_config ns/parameters mailhost]]
+			if {$smtp eq ""} {
+			    set smtp localhost
+			}		
+			set timeout [parameter::get -parameter "SMTPTimeout" \
+					 -package_id $mail_package_id \
+					 -default  [ns_config ns/parameters smtptimeout]]
+		
+			if {$timeout eq ""} {
+			    set timeout 60
+			}
+			set smtpport [parameter::get -parameter "SMTPPort" \
+					  -package_id $mail_package_id \
+					  -default 25]		
+			set smtpuser [parameter::get -parameter "SMTPUser" \
+					  -package_id $mail_package_id]		
+			set smtppassword [parameter::get -parameter "SMTPPassword" \
+					      -package_id $mail_package_id]
+			
+			# set mm_body [string map {"\n" "<br />"} $body]
+			
+			# set mm_cmd "exec /bin/blat - -html -subject \"$subject\" -body \"$mm_body\" -f $from_addr -to $to_addr -server $smtp -port $smtpport -u $smtpuser -pw $smtppassword -ti $timeout"
+			set mm_cmd "exec /bin/blat - -subject \"$subject\" -body \"$body\" -f $from_addr -to $to_addr -server $smtp -port $smtpport -u $smtpuser -pw $smtppassword -ti $timeout"			
+			ns_log Debug "mm_cmd ------> $mm_cmd"
+			
+		        if { [catch {
+		        	eval $mm_cmd
+		         } err_msg] } {
+		         	ns_log Debug "------> $err_msg"
+		         	# Nothing. We check if BLAT was successfull.
+		         }
+		} else {
+		  	acs_mail_lite::smtp -multi_token $tokens \
+		  		-headers $headers_list \
+		  		-originator $originator
+  		}
+			
             # Close all mime tokens
             mime::finalize $tokens -subordinates all
             
