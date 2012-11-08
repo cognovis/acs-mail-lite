@@ -280,6 +280,10 @@ namespace eval acs_mail_lite {
     ad_proc -private sweeper {} {
         Send messages in the acs_mail_lite_queue table.
     } {
+
+	# patch:send mails created by deprecated package acs-mail
+        acs_mail_process_queue
+
         # Make sure that only one thread is processing the queue at a time.
         if {[nsv_incr acs_mail_lite send_mails_p] > 1} {
             nsv_incr acs_mail_lite send_mails_p -1
@@ -407,7 +411,7 @@ namespace eval acs_mail_lite {
         set message_date [acs_mail_lite::utils::build_date]
 
         # Build the message body
-        set tokens [acs_mail_lite::utils::build_body -mime_type $mime_type $body]
+        set tokens [acs_mail_lite::utils::build_body -mime_type $mime_type -- $body]
 
         # Add attachments if any
         if {[exists_and_not_null file_ids]} {
@@ -441,8 +445,8 @@ namespace eval acs_mail_lite {
 
         # Set the subject
         if { $subject ne "" } {
-            set subject [acs_mail_lite::utils::build_subject $subject]
-            mime::setheader $tokens Subject $subject
+            set encoded_subject [acs_mail_lite::utils::build_subject $subject]
+            mime::setheader $tokens Subject $encoded_subject
         }
 
         # Add extra headers
@@ -541,15 +545,15 @@ namespace eval acs_mail_lite {
 
         } else {
 
-            acs_mail_lite::smtp -multi_token $tokens \
-                -headers $headers_list \
-                -originator $originator
-            
+	    acs_mail_lite::smtp -multi_token $tokens \
+		-headers $headers_list \
+		-originator $originator
+	    
             # Close all mime tokens
             mime::finalize $tokens -subordinates all
             
-        }       
-
+	}       
+	
         if { !$no_callback_p } {
             callback acs_mail_lite::send \
                 -package_id $package_id \
@@ -595,16 +599,10 @@ namespace eval acs_mail_lite {
         {extraheaders {}} 
         {bcc {}}
     } {
-
         Replacement for ns_sendmail for backward compability.
-
     } {
-
-
         ns_log Warning "ns_sendmail is no longer supported in OpenACS. Use acs_mail_lite::send instead."
-
         set extraheaders_list [list]
-
         if { $extraheaders ne "" } {
             foreach {key value} [util_ns_set_to_list -set $extraheaders] {
                 lappend extraheaders_list [list $key $value]
@@ -612,6 +610,7 @@ namespace eval acs_mail_lite {
         }
 
         acs_mail_lite::send \
+	    -send_immediately \
             -to_addr [split $to ","] \
             -from_addr $from \
             -subject $subject \
