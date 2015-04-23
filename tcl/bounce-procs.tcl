@@ -55,7 +55,11 @@ namespace eval acs_mail_lite {
         @option message_id message-id of the mail
         @return bounce address
     } {
-        return "[bounce_prefix]-$user_id-[ns_sha1 $message_id]-$package_id@[address_domain]"
+        if {[parameter::get_from_package_key -package_key "acs-mail-lite" -parameter "BounceDomain"] eq ""} {
+            return "[ad_system_owner]"
+        } else {
+            return "[bounce_prefix]-$user_id-[ns_sha1 $message_id]-$package_id@[address_domain]"
+        }
     }
     
     #---------------------------------------
